@@ -1,0 +1,41 @@
+# Build output
+target/
+out/
+build/
+*.class
+
+# IDE/editor files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Local dependencies from the old desktop project.
+# The webapp uses Maven dependencies from pom.xml.
+libs/
+
+# Legacy/local config folder. Production config must come from Render env vars.
+/resources/
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+application-local.properties
+
+# Logs/runtime
+*.log
+logs/
+
+# Frontend package artifacts, if the static Vue app is later migrated to a Node build
+node_modules/
+dist/
+coverage/
+
+# Local database maintenance files; production schema is documented in db.sql.
+query.sql
+query.db
