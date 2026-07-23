@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/webjars/vue/3.5.13/dist/vue.global.prod.js"></script>
+</head>
+<body>
+<div id="app" v-cloak>
+    <aside class="sidebar">
+        <div class="brand">
+            <span class="brand-mark">CRM</span>
+        </div>
+        <template v-if="session">
+            <button type="button" :class="{active: view === 'dashboard'}" @click="view = 'dashboard'">Dashboard</button>
+            <button type="button" v-if="session.role === 'OPERATORE'" :class="{active: view === 'operator'}" @click="view = 'operator'">Operatore</button>
+            <button type="button" v-if="session.role === 'SEGRETERIA'" :class="{active: view === 'secretariat'}" @click="view = 'secretariat'">Segreteria</button>
+            <button type="button" v-if="session.role === 'AMMINISTRATORE'" :class="{active: view === 'admin'}" @click="view = 'admin'">Admin</button>
+            <button type="button" class="ghost" @click="logout">Esci</button>
+        </template>
+    </aside>
+
+    <main class="shell">
+        <section v-if="!session" class="login-panel">
+            <form class="panel" @submit.prevent="login">
+                <h1 style="text-align: center;">CRM</h1>
+                <label>Username
+                    <input v-model="loginForm.username" autocomplete="username" required>
+                </label>
+                <label>Password
+                    <input v-model="loginForm.password" type="password" autocomplete="current-password" required>
+                </label>
+                <button class="primary" :disabled="loading">{{ loading ? 'Accesso...' : 'Accedi' }}</button>
+            </form>
+        </section>
+
+        <template v-else>
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">{{ session.role }}</p>
+                    <h1>{{ pageTitle }}</h1>
+                </div>
+                <div class="user-chip">{{ session.username }}</div>
+            </header>
+
+            <section v-if="view === 'dashboard'" class="grid">
+                <article class="panel span-2">
+                    <h2>Sessione</h2>
+                    <dl class="meta">
+                        <dt>Utente</dt><dd>{{ session.username }}</dd>
+                        <dt>Ruolo</dt><dd>{{ session.role }}</dd>
+                    </dl>
+                </article>
+                <form class="panel form-grid span-2" @submit.prevent="changePassword">
+                    <h2 class="wide">Cambio password</h2>
+                    <label>Password attuale
+                        <input v-model="passwordForm.oldPassword" type="password" autocomplete="current-password" required>
+                    </label>
+                    <label>Nuova password
+                        <input v-model="passwordForm.newPassword" type="password" autocomplete="new-password" required>
+                    </label>
+                    <label>Conferma nuova password
+                        <input v-model="passwordForm.confirmPassword" type="password" autocomplete="new-password" required>
+                    </label>
+                    <button class="primary">Aggiorna password</button>
+                </form>
+            </section>
+
+            <section v-if="view === 'operator'" class="workspace operator-workspace">
+                <div class="panel customer-browser span-2">
+                    <div class="section-head">
+                        <h2>Clienti</h2>
+                        <button type="button" @click="refreshOperatorCustomers">Aggiorna</button>
+                    </div>
+                    <div class="table-wrap compact-table">
+                        <table>
+                            <thead><tr><th>Nome</th><th>Cognome</th></tr></thead>
+                            <tbody>
+                            <tr v-for="customer in customerDirectory" :key="customer.nome + '-' + customer.cognome">
+                                <td>{{ customer.nome }}</td>
+                                <td>{{ customer.cognome }}</td>
+                            </tr>
+                            <tr v-if="!customerDirectory.length">
+                                <td colspan="2" class="empty">Nessun cliente caricato</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Ricerca dettagliata</h3>
+                    </div>
+                    <form class="inline search-inline" @submit.prevent="searchCustomers">
+                        <input v-model="customerSearch.nome" placeholder="Nome">
+                        <input v-model="customerSearch.cognome" placeholder="Cognome">
+                        <button class="primary">Cerca</button>
+                    </form>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>CF</th><th>Nome</th><th>Cognome</th><th>Nascita</th><th>Ultima interazione</th><th></th></tr></thead>
+                            <tbody>
+                            <tr v-for="customer in customers" :key="customer.codiceFiscale" :class="{selected: selectedCustomer?.codiceFiscale === customer.codiceFiscale}">
+                                <td>{{ customer.codiceFiscale }}</td>
+                                <td>{{ customer.nome }}</td>
+                                <td>{{ customer.cognome }}</td>
+                                <td>{{ formatDate(customer.dataNascita) }}</td>
+                                <td>{{ formatDate(customer.dataUltimaInterazione) }}</td>
+                                <td><button type="button" @click="selectCustomer(customer)">Apri</button></td>
+                            </tr>
+                            <tr v-if="!customers.length">
+                                <td colspan="6" class="empty">Cerca per nome e cognome per aprire la scheda cliente</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel customer-card span-2" v-if="selectedCustomer">
+                    <div class="section-head">
+                        <div>
+                            <h2>{{ selectedCustomer.nome }} {{ selectedCustomer.cognome }}</h2>
+                            <p class="muted">{{ selectedCustomer.codiceFiscale }}</p>
+                        </div>
+                        <button type="button" @click="loadCustomerDetails(true)">Aggiorna</button>
+                    </div>
+                    <dl class="meta detail-meta">
+                        <dt>Data nascita</dt><dd>{{ formatDate(selectedCustomer.dataNascita) }}</dd>
+                        <dt>Registrato il</dt><dd>{{ formatDate(selectedCustomer.dataRegistrazione) }}</dd>
+                        <dt>Indirizzo</dt><dd>{{ selectedCustomer.indirizzoResidenza }}</dd>
+                        <dt>Ultima interazione</dt><dd>{{ formatDate(selectedCustomer.dataUltimaInterazione) }}</dd>
+                        <dt>Telefoni</dt>
+                        <dd>
+                            <span v-if="!telephones.length" class="muted">Non presenti</span>
+                            <span v-for="phone in telephones" :key="phone.numero" class="pill">{{ phone.numero }}</span>
+                        </dd>
+                    </dl>
+                </div>
+
+                <div class="panel customer-card empty-card span-2" v-else>
+                    <h2>Scheda cliente</h2>
+                    <p class="muted">Seleziona un cliente dalla ricerca dettagliata per vedere telefoni, storico e azioni operative.</p>
+                </div>
+
+                <div class="panel span-2" v-if="selectedCustomer">
+                    <div class="section-head">
+                        <h2>Operazioni su {{ selectedCustomer.nome }} {{ selectedCustomer.cognome }}</h2>
+                        <span class="muted">{{ selectedCustomer.codiceFiscale }}</span>
+                    </div>
+                    <div class="tabs">
+                        <button type="button" :class="{active: operatorTab === 'interaction'}" @click="operatorTab = 'interaction'">Interazione</button>
+                        <button type="button" :class="{active: operatorTab === 'offer'}" @click="operatorTab = 'offer'">Offerta accettata</button>
+                    </div>
+
+                    <form v-if="operatorTab === 'interaction'" class="form-grid" @submit.prevent="saveInteraction">
+                        <label>Data interazione<input v-model="interactionForm.data" type="date" required></label>
+                        <label class="wide">Nota<textarea v-model="interactionForm.nota" required></textarea></label>
+                        <label class="check wide">
+                            <input v-model="interactionForm.withAppointment" type="checkbox">
+                            Registra anche un appuntamento
+                        </label>
+                        <template v-if="interactionForm.withAppointment">
+                            <label>Sede
+                            <select v-model="interactionForm.sede" required>
+                                <option value="" disabled>Seleziona sede</option>
+                                <option v-for="address in addresses" :key="address.indirizzo" :value="address.indirizzo">{{ address.indirizzo }}</option>
+                            </select>
+                            </label>
+                            <label>Data appuntamento<input v-model="interactionForm.dataAppuntamento" :min="appointmentMinimumDate" type="date" required></label>
+                            <label>Ora<input v-model="interactionForm.oraAppuntamento" type="time" required></label>
+                        </template>
+                        <button class="primary">{{ interactionForm.withAppointment ? 'Salva interazione e appuntamento' : 'Salva interazione' }}</button>
+                    </form>
+
+                    <form v-if="operatorTab === 'offer'" class="form-grid" @submit.prevent="addAcceptedOffer">
+                        <label>Offerta
+                            <select v-model="acceptedOfferForm.offerta" required>
+                                <option value="" disabled>Seleziona offerta</option>
+                                <option v-for="offer in offers" :key="offer.nome" :value="offer.nome">{{ offer.nome }}</option>
+                            </select>
+                        </label>
+                        <label>Data<input v-model="acceptedOfferForm.data" type="date" required></label>
+                        <button class="primary">Registra offerta</button>
+                    </form>
+                </div>
+
+                <div class="panel" v-if="selectedCustomer">
+                    <div class="section-head">
+                        <h2>Storico interazioni</h2>
+                        <button type="button" @click="loadCustomerDetails(true)">Aggiorna</button>
+                    </div>
+                    <ul class="timeline">
+                        <li v-for="item in interactions" :key="item.codiceInterazione">
+                            <div class="timeline-date">{{ formatDate(item.data) }}</div>
+                            <div>
+                                <p>{{ item.nota }}</p>
+                                <p v-if="hasAppointment(item)" class="appointment-line">
+                                    Appuntamento: {{ formatDate(appointmentDate(item)) }} {{ formatTime(appointmentTime(item)) }} - {{ appointmentAddress(item) }}
+                                </p>
+                                <div class="actions timeline-actions">
+                                    <button v-if="hasAppointment(item)" type="button" @click="deleteAppointment(item)">Elimina appuntamento</button>
+                                    <button type="button" class="danger" @click="deleteInteraction(item)">Elimina interazione</button>
+                                </div>
+                            </div>
+                        </li>
+                        <li v-if="!interactions.length" class="empty">
+                            Nessuna interazione registrata
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="panel" v-if="selectedCustomer">
+                    <div class="section-head">
+                        <h2>Offerte accettate</h2>
+                        <button type="button" @click="loadCustomerDetails(true)">Aggiorna</button>
+                    </div>
+                    <ul class="list compact">
+                        <li v-for="offer in acceptedOffers" :key="offer.offerta + offer.data">
+                            <strong>{{ offer.offerta }}</strong>
+                            <span>{{ formatDate(offer.data) }} - {{ offer.utente }}</span>
+                            <div class="actions"><button type="button" class="danger" @click="deleteAcceptedOffer(offer)">Elimina</button></div>
+                        </li>
+                        <li v-if="!acceptedOffers.length" class="empty">Nessuna offerta accettata</li>
+                    </ul>
+                </div>
+
+                <div class="panel span-2">
+                    <div class="section-head">
+                        <h2>Offerte disponibili</h2>
+                        <button type="button" @click="refreshOffers">Aggiorna</button>
+                    </div>
+                    <ul class="list">
+                        <li v-for="offer in offers" :key="offer.nome">
+                            <strong>{{ offer.nome }}</strong>
+                            <span>{{ offer.descrizione }}</span>
+                        </li>
+                        <li v-if="!offers.length" class="empty">Nessuna offerta caricata</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section v-if="view === 'secretariat'" class="workspace secretariat-workspace">
+                <div class="panel customer-browser span-2">
+                    <div class="section-head">
+                        <h2>Clienti</h2>
+                        <button type="button" @click="refreshSecretariatCustomers">Aggiorna</button>
+                    </div>
+                    <div class="table-wrap compact-table">
+                        <table>
+                            <thead><tr><th>Nome</th><th>Cognome</th></tr></thead>
+                            <tbody>
+                            <tr v-for="customer in secretariatDirectory" :key="customer.nome + '-' + customer.cognome">
+                                <td>{{ customer.nome }}</td>
+                                <td>{{ customer.cognome }}</td>
+                            </tr>
+                            <tr v-if="!secretariatDirectory.length">
+                                <td colspan="2" class="empty">Nessun cliente caricato</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <form class="panel span-2 form-grid" @submit.prevent="addCustomer">
+                    <h2 class="wide">Nuovo cliente</h2>
+                    <label>Codice fiscale<input v-model="newCustomer.codiceFiscale" required></label>
+                    <label>Nome<input v-model="newCustomer.nome" required></label>
+                    <label>Cognome<input v-model="newCustomer.cognome" required></label>
+                    <label>Data nascita<input v-model="newCustomer.dataNascita" type="date" required></label>
+                    <label>Registrazione<input v-model="newCustomer.dataRegistrazione" type="date" required></label>
+                    <label class="wide">Indirizzo<input v-model="newCustomer.indirizzoResidenza" required></label>
+                    <button class="primary">Crea cliente</button>
+                </form>
+
+                <div class="panel span-2">
+                    <h2>Ricerca cliente</h2>
+                    <form class="inline search-inline" @submit.prevent="searchSecretariatCustomers">
+                        <input v-model="secretariatSearch.nome" placeholder="Nome">
+                        <input v-model="secretariatSearch.cognome" placeholder="Cognome">
+                        <button class="primary">Cerca</button>
+                    </form>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>CF</th><th>Nome</th><th>Cognome</th><th>Nascita</th><th></th></tr></thead>
+                            <tbody>
+                            <tr v-for="customer in secretariatCustomers" :key="customer.codiceFiscale">
+                                <td>{{ customer.codiceFiscale }}</td>
+                                <td>{{ customer.nome }}</td>
+                                <td>{{ customer.cognome }}</td>
+                                <td>{{ formatDate(customer.dataNascita) }}</td>
+                                <td><button type="button" @click="useSecretariatCustomer(customer)">Apri</button></td>
+                            </tr>
+                            <tr v-if="!secretariatCustomers.length">
+                                <td colspan="5" class="empty">Cerca un cliente per modificarne i dati</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <form class="panel span-2 form-grid" v-if="secretariatSelectedCustomer" @submit.prevent="updateSecretariatCustomer">
+                    <h2 class="wide">Modifica cliente</h2>
+                    <label>Codice fiscale<input :value="secretariatSelectedCustomer.codiceFiscale" disabled></label>
+                    <label>Nome<input v-model="secretariatEditCustomer.nome" required></label>
+                    <label>Cognome<input v-model="secretariatEditCustomer.cognome" required></label>
+                    <label>Data nascita<input v-model="secretariatEditCustomer.dataNascita" type="date" required></label>
+                    <label class="wide">Indirizzo<input v-model="secretariatEditCustomer.indirizzoResidenza" required></label>
+                    <label>Nuovo telefono (opzionale)<input v-model="secretariatEditCustomer.numeroTelefono" type="tel"></label>
+                    <label class="wide">Nuova email (opzionale)<input v-model="secretariatEditCustomer.indirizzoEmail" type="email"></label>
+                    <div class="actions wide">
+                        <button class="primary">Aggiorna cliente</button>
+                        <button type="button" class="danger" @click="openSecretariatCustomerDeletion">Elimina cliente</button>
+                    </div>
+                </form>
+
+                <div class="panel span-2">
+                    <h2>Report</h2>
+                    <form class="inline" @submit.prevent="loadReport">
+                        <input v-model="reportRange.dal" type="date" required>
+                        <input v-model="reportRange.al" type="date" required>
+                        <button class="primary">Genera</button>
+                    </form>
+                    <p class="muted" v-if="reportLoaded">Clienti con attivita: {{ reportTotal() }}</p>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Nome</th><th>Cognome</th><th>Interazioni</th><th>Offerte accettate</th></tr></thead>
+                            <tbody>
+                            <tr v-for="row in reportRows()" :key="row.nome + '-' + row.cognome">
+                                <td>{{ row.nome }}</td>
+                                <td>{{ row.cognome }}</td>
+                                <td>{{ row.interazioni }}</td>
+                                <td>{{ row.offerteAccettate }}</td>
+                            </tr>
+                            <tr v-if="!reportLoaded">
+                                <td colspan="4" class="empty">Genera un report per visualizzare i dati</td>
+                            </tr>
+                            <tr v-else-if="!reportRows().length">
+                                <td colspan="4" class="empty">Nessuna attivita nel periodo selezionato</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section v-if="view === 'admin'" class="workspace">
+                <form class="panel form-grid" @submit.prevent="addUser">
+                    <h2 class="wide">Nuovo utente</h2>
+                    <label>Username<input v-model="newUser.id" required></label>
+                    <label>Nome<input v-model="newUser.nome" required></label>
+                    <label>Cognome<input v-model="newUser.cognome" required></label>
+                    <label>Password iniziale<input v-model="newUser.password" type="password" minlength="8" autocomplete="new-password" required></label>
+                    <label>Ruolo
+                        <select v-model="newUser.ruolo" required>
+                            <option>OPERATORE</option>
+                            <option>SEGRETERIA</option>
+                            <option>AMMINISTRATORE</option>
+                        </select>
+                    </label>
+                    <button class="primary">Crea utente</button>
+                </form>
+
+                <form class="panel form-grid" @submit.prevent="updateUser">
+                    <h2 class="wide">Modifica utente</h2>
+                    <label>Username<input v-model="editUserForm.id" readonly required></label>
+                    <label>Nome<input v-model="editUserForm.nome" required></label>
+                    <label>Cognome<input v-model="editUserForm.cognome" required></label>
+                    <label>Ruolo
+                        <select v-model="editUserForm.ruolo" required>
+                            <option>OPERATORE</option>
+                            <option>SEGRETERIA</option>
+                            <option>AMMINISTRATORE</option>
+                        </select>
+                    </label>
+                    <button class="primary" :disabled="!editUserForm.id">Salva modifiche</button>
+                </form>
+
+                <form class="panel form-grid span-2" @submit.prevent="addOffer">
+                    <h2 class="wide">Nuova offerta</h2>
+                    <label class="wide">Nome<input v-model="newOffer.nome" required></label>
+                    <label class="wide">Descrizione<textarea v-model="newOffer.descrizione" required></textarea></label>
+                    <label class="check"><input v-model="newOffer.disponibile" type="checkbox"> Disponibile</label>
+                    <button class="primary">Crea offerta</button>
+                </form>
+
+                <div class="panel span-2">
+                    <div class="section-head">
+                        <h2>Gestione offerte</h2>
+                        <button type="button" @click="refreshManagedOffers">Aggiorna</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Nome</th><th>Descrizione</th><th>Disponibile</th><th>Azioni</th></tr></thead>
+                            <tbody>
+                            <tr v-for="offer in managedOffers" :key="offer.nome">
+                                <td>{{ offer.nome }}</td>
+                                <td>{{ offer.descrizione || '-' }}</td>
+                                <td>
+                                    <label class="check compact-check">
+                                        <input v-model="offer.disponibile" :disabled="!offer.modificabile" type="checkbox" @change="confirmOfferAvailability(offer)">
+                                        <span>{{ offer.disponibile ? 'Si' : 'No' }}</span>
+                                    </label>
+                                </td>
+                                <td><button type="button" class="danger" :disabled="!offer.modificabile" @click="deleteOffer(offer)">Rimuovi</button></td>
+                            </tr>
+                            <tr v-if="!managedOffers.length">
+                                <td colspan="4" class="empty">Nessuna offerta caricata</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel span-2">
+                    <div class="section-head">
+                        <h2>Utenti</h2>
+                        <button type="button" @click="refreshUsers">Aggiorna</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Username</th><th>Nome</th><th>Cognome</th><th>Ruolo</th><th></th></tr></thead>
+                            <tbody>
+                            <tr v-for="user in users" :key="user.id" :class="{selected: editUserForm.id === user.id}">
+                                <td>{{ user.id }}</td>
+                                <td>{{ user.nome }}</td>
+                                <td>{{ user.cognome }}</td>
+                                <td>{{ String(user.ruolo).toUpperCase() }}</td>
+                                <td class="actions">
+                                    <button type="button" @click="editUser(user)">Modifica</button>
+                                    <button type="button" class="danger" :disabled="user.id === session.username" @click="deleteUser(user)">Rimuovi</button>
+                                </td>
+                            </tr>
+                            <tr v-if="!users.length">
+                                <td colspan="5" class="empty">Nessun utente caricato</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </template>
+
+        <div v-if="pendingConfirmation" class="modal-backdrop" @click.self="cancelConfirmation">
+            <section class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
+                <h2 id="confirmation-title">{{ pendingConfirmation.title }}</h2>
+                <p>{{ pendingConfirmation.message }}</p>
+                <p v-if="pendingConfirmation.warning" class="muted">{{ pendingConfirmation.warning }}</p>
+                <div class="actions modal-actions">
+                    <button type="button" @click="cancelConfirmation">Annulla</button>
+                    <button type="button" :class="{primary: !pendingConfirmation.destructive, danger: pendingConfirmation.destructive}" @click="confirmPendingAction">{{ pendingConfirmation.confirmLabel || 'Conferma' }}</button>
+                </div>
+            </section>
+        </div>
+
+        <div class="toast" v-if="message" :class="message.type">{{ message.text }}</div>
+    </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
